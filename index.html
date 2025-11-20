@@ -1,0 +1,215 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Plinko — FakeStake (Demo)</title>
+<style>
+:root{
+  --bg:#071023; --panel:#0f1724; --accent:#00eaff; --muted:#9aa3b8;
+  --chip:#ffd166;
+}
+*{box-sizing:border-box}
+body{margin:0;font-family:Inter,system-ui,Arial,sans-serif;background:linear-gradient(180deg,var(--bg),#040712);color:#e6eef6;display:flex;justify-content:center;align-items:flex-start;padding:28px 12px;}
+.container{width:960px;max-width:100%;display:grid;grid-template-columns:320px 1fr;gap:20px;}
+.panel{background:linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0.01));padding:18px;border-radius:12px;box-shadow:0 8px 30px rgba(2,6,23,0.6);}
+.header{display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;}
+.brand{font-weight:700;font-size:20px;color:var(--accent);}
+.small{color:var(--muted);font-size:13px}
+.controls{display:flex;flex-direction:column;gap:10px;margin-top:10px}
+.btn{background:var(--accent);color:#001;padding:10px;border-radius:10px;border:none;cursor:pointer;font-weight:700}
+.btn.ghost{background:transparent;color:var(--muted);border:1px solid rgba(255,255,255,0.04)}
+.board-wrap{display:flex;flex-direction:column;align-items:center;gap:12px}
+#board{width:560px;height:640px;background:linear-gradient(180deg,#081022,#061025);border-radius:12px;position:relative;overflow:hidden;border:2px solid rgba(255,255,255,0.03)}
+.chip{width:22px;height:22px;border-radius:50%;background:var(--chip);position:absolute;left:50%;transform:translateX(-50%);top:10px;box-shadow:0 6px 18px rgba(0,0,0,0.6);display:flex;align-items:center;justify-content:center;font-weight:700;color:#111}
+.peg{width:10px;height:10px;background:#9aa3b8;border-radius:50%;position:absolute;transform:translate(-50%,-50%);opacity:0.95}
+.slots{position:absolute;bottom:0;left:0;right:0;height:90px;display:flex;align-items:flex-end;justify-content:space-between;padding:0 10px;gap:6px}
+.slot{flex:1;height:80px;background:linear-gradient(180deg,#07121a,#04101a);border-radius:6px 6px 0 0;display:flex;align-items:flex-end;justify-content:center;color:var(--muted);font-weight:700;border:1px solid rgba(255,255,255,0.03);font-size:14px;padding-bottom:8px}
+@media (max-width:980px){.container{grid-template-columns:1fr}#board{width:100%;height:560px}}
+</style>
+</head>
+<body>
+<div class="container">
+  <aside class="panel">
+    <div class="header">
+      <div class="brand">FakeStake</div>
+      <div class="small">Plinko</div>
+    </div>
+    <div class="small">Balance</div>
+    <div id="balance" style="font-size:22px;font-weight:800;margin:6px 0">0 Chips</div>
+    <div class="controls">
+      <label class="small">Bet amount (Chips)</label>
+      <input id="bet" type="number" value="50" min="1" style="padding:10px;border-radius:8px;border:none" />
+      <button class="btn" id="dropBtn">Drop Chip</button>
+      <button class="btn ghost" id="loanBtn">Take Fake Loan (+500)</button>
+      <button class="btn ghost" id="resetBtn">Reset Balance</button>
+      <div style="margin-top:8px" class="small">Payouts shown under slots. This is fake money for demo only.</div>
+    </div>
+    <hr style="margin:14px 0;border:none;border-top:1px solid rgba(255,255,255,0.03)"/>
+    <div class="small">How it works</div>
+    <div class="small" style="margin-top:6px;color:var(--muted)">Drop a chip — it falls through pegs and lands in a slot. Slot values determine payout. If you run out, use the fake loan.</div>
+  </aside>
+
+  <main class="panel board-wrap">
+    <div id="board" aria-hidden="false">
+      <div class="slots" id="slots"></div>
+    </div>
+    <div style="display:flex;gap:12px;align-items:center;justify-content:center;width:100%">
+      <div class="small">Last result:</div><div id="result" class="small" style="font-weight:800">—</div>
+    </div>
+  </main>
+</div>
+
+<script>
+// LocalStorage key
+const BAL_KEY = 'fakestake_chips';
+function getBal(){return Number(localStorage.getItem(BAL_KEY) || 1000);}
+function setBal(v){localStorage.setItem(BAL_KEY, String(Math.max(0, Math.floor(v))))}
+function refreshBal(){document.getElementById('balance').innerText = getBal() + ' Chips';}
+refreshBal();
+
+// Board params
+const board = document.getElementById('board');
+const slotsEl = document.getElementById('slots');
+const rows = 8;      // rows of pegs
+const cols = 11;     // peg columns
+const slotCount = 5; // slots
+const slotValues = [20, 50, 100, 200, 500]; // payouts for each slot
+
+// Build pegs + slots
+function buildPegs(){
+  board.querySelectorAll('.peg, .chip').forEach(n=>n.remove());
+  const w = board.clientWidth, h = Math.max(260, board.clientHeight - 120);
+  for(let r=0;r<rows;r++){
+    const y = 60 + (r*(h-60))/(rows-1);
+    const offset = (r%2===0)?0: (w/(cols*2));
+    for(let c=0;c<cols;c++){
+      const x = offset + (c*(w)/(cols-1));
+      const peg = document.createElement('div');
+      peg.className = 'peg';
+      peg.style.left = x + 'px';
+      peg.style.top = y + 'px';
+      board.appendChild(peg);
+    }
+  }
+  // build slots
+  slotsEl.innerHTML = '';
+  for(let i=0;i<slotCount;i++){
+    const slot = document.createElement('div');
+    slot.className = 'slot';
+    slot.innerText = slotValues[i];
+    slotsEl.appendChild(slot);
+  }
+}
+buildPegs();
+window.addEventListener('resize', ()=>{ buildPegs(); });
+
+// Visual fall with simple collisions
+function animateChip(){
+  return new Promise((resolve)=>{
+    const chip = document.createElement('div');
+    chip.className = 'chip';
+    const startX = board.clientWidth/2 - 11;
+    chip.style.left = startX + 'px';
+    chip.style.top = '8px';
+    board.appendChild(chip);
+
+    let x = startX, y = 8;
+    let vx = (Math.random()-0.5)*2; // small horiz speed
+    let vy = 0;
+    const gravity = 0.6;
+    const pegRadius = 8;
+    const pegs = Array.from(board.querySelectorAll('.peg')).map(p=>({
+      x: parseFloat(p.style.left),
+      y: parseFloat(p.style.top)
+    }));
+    const bottomY = board.clientHeight - 100;
+
+    function step(){
+      vy += gravity;
+      x += vx;
+      y += vy;
+
+      // simple peg collision -> push away
+      for(let p of pegs){
+        const dx = x - p.x;
+        const dy = y - p.y;
+        const dist = Math.sqrt(dx*dx + dy*dy);
+        if(dist < pegRadius + 8){
+          // nudge
+          vx += (dx/dist) * 1.6;
+          vy -= 4;
+        }
+      }
+
+      // bounds
+      if(x < 8){ x = 8; vx *= -0.6; }
+      if(x > board.clientWidth - 30){ x = board.clientWidth - 30; vx *= -0.6; }
+
+      chip.style.left = x + 'px';
+      chip.style.top = y + 'px';
+
+      if(y >= bottomY){
+        const slotWidth = (board.clientWidth - 20) / slotCount;
+        const idx = Math.min(slotCount - 1, Math.max(0, Math.floor((x - 10) / slotWidth)));
+        chip.remove();
+        resolve(idx);
+        return;
+      }
+      requestAnimationFrame(step);
+    }
+    requestAnimationFrame(step);
+  });
+}
+
+// Buttons
+const dropBtn = document.getElementById('dropBtn');
+const loanBtn = document.getElementById('loanBtn');
+const resetBtn = document.getElementById('resetBtn');
+const resultEl = document.getElementById('result');
+
+dropBtn.addEventListener('click', async ()=>{
+  const bet = Math.max(1, Math.floor(Number(document.getElementById('bet').value) || 0));
+  let bal = getBal();
+  if(bet <= 0){ resultEl.innerText = 'Enter a valid bet'; return; }
+  if(bet > bal){ resultEl.innerText = 'Not enough Chips — take a loan or lower your bet'; return; }
+
+  // take bet up-front (simulates staking the chip)
+  setBal(bal - bet);
+  refreshBal();
+
+  dropBtn.disabled = true;
+  resultEl.innerText = 'Dropping...';
+  const idx = await animateChip();
+
+  // compute payout: we treat slot value as the absolute amount paid to player (demo)
+  const payout = slotValues[idx];
+  // optional: you could use multiplier logic; this uses fixed payouts for clarity
+  const newBal = getBal() + payout;
+  setBal(newBal);
+  refreshBal();
+  resultEl.innerText = `Landed in slot ${idx+1} — Payout ${payout} Chips`;
+  dropBtn.disabled = false;
+});
+
+loanBtn.addEventListener('click', ()=>{
+  const bal = getBal();
+  setBal(bal + 500);
+  refreshBal();
+  resultEl.innerText = 'Bank loan granted (+500 Chips) — Demo only';
+});
+
+resetBtn.addEventListener('click', ()=>{
+  if(confirm('Reset balance to 1000 Chips?')){
+    setBal(1000);
+    refreshBal();
+    resultEl.innerText = 'Balance reset to 1000';
+  }
+});
+
+// ensure initial balance exists
+if(!localStorage.getItem(BAL_KEY)) setBal(1000);
+refreshBal();
+</script>
+</body>
+</html>
